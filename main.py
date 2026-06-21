@@ -1,7 +1,7 @@
 import argparse
 import sys
 import os
-from integration import integrate, INTEGRATE_METHODS
+from integration import integrate, INTEGRATE_METHODS, ExpressionParseError
 from ode_solver import solve_ode, ODE_METHODS
 from plotting import plot_function, plot_ode_solution
 from config import load_config, merge_args
@@ -211,6 +211,12 @@ def cmd_integrate(args, config):
                 output_file=output_file
             )
             print(f'积分区域图像已保存: {img_file}')
+    except ExpressionParseError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f'错误: {e}', file=sys.stderr)
         sys.exit(1)
@@ -233,8 +239,8 @@ def cmd_ode(args, config):
         if method_used == 'rk45':
             method_name = f'自适应 RK45 (Dormand-Prince)'
             h_avg = (args.x_end - args.x0) / steps_used
-            h_min = min(np.diff(x))
-            h_max = max(np.diff(x))
+            h_min_val = min(np.diff(x))
+            h_max_val = max(np.diff(x))
         else:
             method_name = {
                 'euler': '欧拉法',
@@ -251,8 +257,8 @@ def cmd_ode(args, config):
         if method_used == 'rk45':
             print(f'容差: {args.tolerance}')
             print(f'平均步长: {h_avg:.6f}')
-            print(f'最小步长: {h_min:.6f}')
-            print(f'最大步长: {h_max:.6f}')
+            print(f'最小步长: {h_min_val:.6f}')
+            print(f'最大步长: {h_max_val:.6f}')
         else:
             print(f'固定步长: h = {(args.x_end - args.x0) / args.n:.8f}')
         print('-' * 50)
@@ -289,6 +295,12 @@ def cmd_ode(args, config):
                 output_file=plot_output
             )
             print(f'ODE 解曲线图像已保存: {img_file}')
+    except ExpressionParseError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f'错误: {e}', file=sys.stderr)
         sys.exit(1)
@@ -316,6 +328,12 @@ def cmd_plot(args, config):
         print('-' * 50)
         print(f'图像已保存: {output_file}')
         print('=' * 50)
+    except ExpressionParseError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f'错误: {e}', file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f'错误: {e}', file=sys.stderr)
         sys.exit(1)

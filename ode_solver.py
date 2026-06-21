@@ -1,9 +1,14 @@
 import sympy as sp
 import numpy as np
 import csv
+import sys
+from integration import ExpressionParseError
 
 
 def parse_ode_function(expr_str, variable='x', dep_variable='y'):
+    if not isinstance(expr_str, str) or not expr_str.strip():
+        raise ExpressionParseError("函数表达式为空")
+
     x = sp.Symbol(variable)
     y = sp.Symbol(dep_variable)
     local_dict = {
@@ -15,55 +20,174 @@ def parse_ode_function(expr_str, variable='x', dep_variable='y'):
         'sinh': sp.sinh, 'cosh': sp.cosh, 'tanh': sp.tanh,
         'sec': sp.sec, 'csc': sp.csc, 'cot': sp.cot,
     }
-    expr = sp.sympify(expr_str, locals=local_dict)
-    f = sp.lambdify((x, y), expr, modules=['numpy', 'sympy'])
+
+    try:
+        expr = sp.sympify(expr_str, locals=local_dict)
+    except sp.SympifyError as e:
+        msg = str(e)
+        friendly = f"表达式解析错误: \"{expr_str}\"\n"
+        if expr_str.count("(") != expr_str.count(")"):
+            friendly += "  提示: 检查括号是否匹配"
+        elif "SyntaxError" in msg or "expected" in msg.lower():
+            friendly += "  提示: 检查语法是否正确"
+        friendly += f"\n  详细信息: {msg}"
+        raise ExpressionParseError(friendly)
+    except Exception as e:
+        raise ExpressionParseError(
+            f"表达式解析错误: \"{expr_str}\"\n"
+            f"  提示: 请检查表达式是否正确，支持 sin, cos, exp, log, sqrt 等常见函数\n"
+            f"  详细信息: {e}"
+        )
+
+    free = expr.free_symbols
+    allowed = {x, y}
+    extra_symbols = free - allowed
+    if extra_symbols:
+        names = ", ".join(str(s) for s in extra_symbols)
+        raise ExpressionParseError(
+            f"表达式中包含未定义的符号: {names}\n"
+            f"  提示: 只允许使用变量 '{variable}'、'{dep_variable}' 和支持的数学函数/常量"
+        )
+
+    try:
+        f = sp.lambdify((x, y), expr, modules=['numpy', 'sympy'])
+    except Exception as e:
+        raise ExpressionParseError(
+            f"表达式转换为可计算函数失败: {e}"
+        )
+
     return f, expr
 
 
-def euler_method(f, x0, y0, x_end, n):
+def check_divergence(y_list, threshold=1e10, window=5):
+    if len(y_list) < window + 1:
+        return False
+    recent = y_list[-window:]
+    if any(not np.isfinite(v) for v in recent):
+        return True
+    max_growth = 0
+    for i in range(1, len(recent)):
+        if abs(recent[i - 1]) > 1e-10:
+            ratio = abs(recent[i] / recent[i - 1])
+            if ratio > max_growth:
+                max_growth = ratio
+    if max_growth > 100:
+        return True
+    if max(abs(v) for v in recent) > threshold:
+        return True
+    return False
+
+
+def euler_method(f, x0, y0, x_end, n, warn_divergence=True):
     if n <= 0:
         raise ValueError("n 必须是正整数")
     h = (x_end - x0) / n
     x = np.linspace(x0, x_end, n + 1)
     y = np.zeros(n + 1)
     y[0] = y0
+    diverged = False
     for i in range(n):
-        y[i + 1] = y[i] + h * float(f(x[i], y[i]))
+        try:
+            k = float(f(x[i], y[i]))
+            if not np.isfinite(k):
+                raise ValueError(f"f({x[i]:.6f}, {y[i]:.6f}) 计算结果无效")
+        except Exception as e:
+            raise ValueError(f"在 x = {x[i]:.6f}, y = {y[i]:.6f} 处计算 f(x, y) 失败: {e}")
+        y[i + 1] = y[i] + h * k
+        if not np.isfinite(y[i + 1]):
+            raise ValueError(
+                f"数值在 x = {x[i + 1]:.6f} 处发散为 {y[i + 1]}，步长可能太大"
+            )
+        if warn_divergence and not diverged and check_divergence(y[:i + 2]):
+            diverged = True
+            print("=" * 50, file=sys.stderr)
+            print("警告: 检测到数值可能发散或剧烈增长", file=sys.stderr)
+            print(f"  当前位置: x = {x[i + 1]:.6f}, y = {y[i + 1]:.6e}", file=sys.stderr)
+            print("  可能原因: 方程为刚性方程，或步长过大", file=sys.stderr)
+            print("  建议: 减小步长 (--steps)，或使用自适应方法 (--adaptive)", file=sys.stderr)
+            print("=" * 50, file=sys.stderr)
     return x, y
 
 
-def heun_method(f, x0, y0, x_end, n):
+def heun_method(f, x0, y0, x_end, n, warn_divergence=True):
     if n <= 0:
         raise ValueError("n 必须是正整数")
     h = (x_end - x0) / n
     x = np.linspace(x0, x_end, n + 1)
     y = np.zeros(n + 1)
     y[0] = y0
+    diverged = False
     for i in range(n):
-        k1 = float(f(x[i], y[i]))
+        try:
+            k1 = float(f(x[i], y[i]))
+            if not np.isfinite(k1):
+                raise ValueError(f"f({x[i]:.6f}, {y[i]:.6f}) 计算结果无效")
+        except Exception as e:
+            raise ValueError(f"在 x = {x[i]:.6f}, y = {y[i]:.6f} 处计算 f(x, y) 失败: {e}")
         y_predict = y[i] + h * k1
-        k2 = float(f(x[i + 1], y_predict))
+        try:
+            k2 = float(f(x[i + 1], y_predict))
+            if not np.isfinite(k2):
+                raise ValueError(f"f({x[i + 1]:.6f}, {y_predict:.6f}) 计算结果无效")
+        except Exception as e:
+            raise ValueError(f"在校正步计算 f(x, y) 失败 (x = {x[i + 1]:.6f}, y ≈ {y_predict:.6f}): {e}")
         y[i + 1] = y[i] + (h / 2) * (k1 + k2)
+        if not np.isfinite(y[i + 1]):
+            raise ValueError(
+                f"数值在 x = {x[i + 1]:.6f} 处发散为 {y[i + 1]}，步长可能太大"
+            )
+        if warn_divergence and not diverged and check_divergence(y[:i + 2]):
+            diverged = True
+            print("=" * 50, file=sys.stderr)
+            print("警告: 检测到数值可能发散或剧烈增长", file=sys.stderr)
+            print(f"  当前位置: x = {x[i + 1]:.6f}, y = {y[i + 1]:.6e}", file=sys.stderr)
+            print("  可能原因: 方程为刚性方程，或步长过大", file=sys.stderr)
+            print("  建议: 减小步长 (--steps)，或使用自适应方法 (--adaptive)", file=sys.stderr)
+            print("=" * 50, file=sys.stderr)
     return x, y
 
 
-def rk4_method(f, x0, y0, x_end, n):
+def rk4_method(f, x0, y0, x_end, n, warn_divergence=True):
     if n <= 0:
         raise ValueError("n 必须是正整数")
     h = (x_end - x0) / n
     x = np.linspace(x0, x_end, n + 1)
     y = np.zeros(n + 1)
     y[0] = y0
+    diverged = False
     for i in range(n):
-        k1 = float(f(x[i], y[i]))
-        k2 = float(f(x[i] + h / 2, y[i] + h / 2 * k1))
-        k3 = float(f(x[i] + h / 2, y[i] + h / 2 * k2))
-        k4 = float(f(x[i] + h, y[i] + h * k3))
+        try:
+            k1 = float(f(x[i], y[i]))
+            if not np.isfinite(k1):
+                raise ValueError("k1 无效")
+            k2 = float(f(x[i] + h / 2, y[i] + h / 2 * k1))
+            if not np.isfinite(k2):
+                raise ValueError("k2 无效")
+            k3 = float(f(x[i] + h / 2, y[i] + h / 2 * k2))
+            if not np.isfinite(k3):
+                raise ValueError("k3 无效")
+            k4 = float(f(x[i] + h, y[i] + h * k3))
+            if not np.isfinite(k4):
+                raise ValueError("k4 无效")
+        except Exception as e:
+            raise ValueError(f"在 x = {x[i]:.6f}, y = {y[i]:.6f} 处计算 RK4 系数失败: {e}")
         y[i + 1] = y[i] + (h / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+        if not np.isfinite(y[i + 1]):
+            raise ValueError(
+                f"数值在 x = {x[i + 1]:.6f} 处发散为 {y[i + 1]}，步长可能太大"
+            )
+        if warn_divergence and not diverged and check_divergence(y[:i + 2]):
+            diverged = True
+            print("=" * 50, file=sys.stderr)
+            print("警告: 检测到数值可能发散或剧烈增长", file=sys.stderr)
+            print(f"  当前位置: x = {x[i + 1]:.6f}, y = {y[i + 1]:.6e}", file=sys.stderr)
+            print("  可能原因: 方程为刚性方程，或步长过大", file=sys.stderr)
+            print("  建议: 减小步长 (--steps)，或使用自适应方法 (--adaptive)", file=sys.stderr)
+            print("=" * 50, file=sys.stderr)
     return x, y
 
 
-def rk45_adaptive(f, x0, y0, x_end, tol=1e-6, h_max=0.1, h_min=1e-10, max_steps=1000000):
+def rk45_adaptive(f, x0, y0, x_end, tol=1e-6, h_max=0.1, h_min=1e-10, max_steps=1000000, warn_divergence=True):
     c2 = 1/5
     c3 = 3/10
     c4 = 4/5
@@ -110,23 +234,49 @@ def rk45_adaptive(f, x0, y0, x_end, tol=1e-6, h_max=0.1, h_min=1e-10, max_steps=
     y = [y0]
     h = h_max
     step_count = 0
+    diverged = False
+    h_warned = False
 
     while x[-1] < x_end and step_count < max_steps:
         step_count += 1
         h = min(h, x_end - x[-1])
         if h < h_min:
+            if not h_warned:
+                h_warned = True
+                print("=" * 50, file=sys.stderr)
+                print("警告: 步长已达到最小值", file=sys.stderr)
+                print(f"  当前位置: x = {x[-1]:.6f}", file=sys.stderr)
+                print("  可能原因: 方程刚性强，或精度要求过高", file=sys.stderr)
+                print("=" * 50, file=sys.stderr)
             h = h_min
 
         xi = x[-1]
         yi = y[-1]
 
-        k1 = float(f(xi, yi))
-        k2 = float(f(xi + c2 * h, yi + h * a21 * k1))
-        k3 = float(f(xi + c3 * h, yi + h * (a31 * k1 + a32 * k2)))
-        k4 = float(f(xi + c4 * h, yi + h * (a41 * k1 + a42 * k2 + a43 * k3)))
-        k5 = float(f(xi + c5 * h, yi + h * (a51 * k1 + a52 * k2 + a53 * k3 + a54 * k4)))
-        k6 = float(f(xi + c6 * h, yi + h * (a61 * k1 + a62 * k2 + a63 * k3 + a64 * k4 + a65 * k5)))
-        k7 = float(f(xi + c7 * h, yi + h * (a71 * k1 + a73 * k3 + a74 * k4 + a75 * k5 + a76 * k6)))
+        try:
+            k1 = float(f(xi, yi))
+            if not np.isfinite(k1):
+                raise ValueError("k1 无效")
+            k2 = float(f(xi + c2 * h, yi + h * a21 * k1))
+            if not np.isfinite(k2):
+                raise ValueError("k2 无效")
+            k3 = float(f(xi + c3 * h, yi + h * (a31 * k1 + a32 * k2)))
+            if not np.isfinite(k3):
+                raise ValueError("k3 无效")
+            k4 = float(f(xi + c4 * h, yi + h * (a41 * k1 + a42 * k2 + a43 * k3)))
+            if not np.isfinite(k4):
+                raise ValueError("k4 无效")
+            k5 = float(f(xi + c5 * h, yi + h * (a51 * k1 + a52 * k2 + a53 * k3 + a54 * k4)))
+            if not np.isfinite(k5):
+                raise ValueError("k5 无效")
+            k6 = float(f(xi + c6 * h, yi + h * (a61 * k1 + a62 * k2 + a63 * k3 + a64 * k4 + a65 * k5)))
+            if not np.isfinite(k6):
+                raise ValueError("k6 无效")
+            k7 = float(f(xi + c7 * h, yi + h * (a71 * k1 + a73 * k3 + a74 * k4 + a75 * k5 + a76 * k6)))
+            if not np.isfinite(k7):
+                raise ValueError("k7 无效")
+        except Exception as e:
+            raise ValueError(f"在 x = {xi:.6f}, y = {yi:.6f} 处计算 RK45 系数失败: {e}")
 
         y5 = yi + h * (b1 * k1 + b3 * k3 + b4 * k4 + b5 * k5 + b6 * k6)
         y4 = yi + h * (b1s * k1 + b3s * k3 + b4s * k4 + b5s * k5 + b6s * k6 + b7s * k7)
@@ -136,6 +286,17 @@ def rk45_adaptive(f, x0, y0, x_end, tol=1e-6, h_max=0.1, h_min=1e-10, max_steps=
         if error <= tol or h <= h_min:
             x.append(xi + h)
             y.append(y5)
+            if not np.isfinite(y5):
+                raise ValueError(
+                    f"数值在 x = {xi + h:.6f} 处发散为 {y5}"
+                )
+            if warn_divergence and not diverged and check_divergence(y):
+                diverged = True
+                print("=" * 50, file=sys.stderr)
+                print("警告: 检测到数值可能发散或剧烈增长", file=sys.stderr)
+                print(f"  当前位置: x = {xi + h:.6f}, y = {y5:.6e}", file=sys.stderr)
+                print("  可能原因: 方程为刚性方程，或容差设置不当", file=sys.stderr)
+                print("=" * 50, file=sys.stderr)
 
         if error == 0:
             factor = 5.0
@@ -147,7 +308,7 @@ def rk45_adaptive(f, x0, y0, x_end, tol=1e-6, h_max=0.1, h_min=1e-10, max_steps=
         h = max(h_min, min(h_max, h))
 
     if step_count >= max_steps:
-        print(f'警告: 达到最大步数 {max_steps}，可能未完全收敛')
+        print(f'警告: 达到最大步数 {max_steps}，可能未完全收敛', file=sys.stderr)
 
     return np.array(x), np.array(y), step_count
 
