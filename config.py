@@ -39,11 +39,35 @@ class Config:
             return [self._deep_copy(v) for v in obj]
         return obj
 
+    def _coerce_value(self, key, value, default_val):
+        if value is None:
+            return value
+        if isinstance(default_val, bool) and not isinstance(value, bool):
+            try:
+                return bool(value)
+            except (ValueError, TypeError):
+                return value
+        if isinstance(default_val, float):
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return value
+        if isinstance(default_val, int) and not isinstance(value, bool):
+            try:
+                if isinstance(value, float):
+                    return int(value)
+                return int(value)
+            except (ValueError, TypeError):
+                return value
+        return value
+
     def _deep_update(self, base, updates):
         for key, value in updates.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 self._deep_update(base[key], value)
             else:
+                if key in base:
+                    value = self._coerce_value(key, value, base[key])
                 base[key] = value
 
     def load(self, config_path='config.yaml'):
@@ -67,7 +91,18 @@ class Config:
         section_data = self._config.get(section, {})
         if not isinstance(section_data, dict):
             return default
-        return section_data.get(key, default)
+        value = section_data.get(key, default)
+        if default is not None and value is not None and not isinstance(value, type(default)):
+            try:
+                if isinstance(default, bool):
+                    value = bool(value)
+                elif isinstance(default, int):
+                    value = int(float(value))
+                elif isinstance(default, float):
+                    value = float(value)
+            except (ValueError, TypeError):
+                pass
+        return value
 
     def get_section(self, section):
         return self._config.get(section, {})
