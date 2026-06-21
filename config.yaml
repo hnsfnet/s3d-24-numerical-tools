@@ -1,0 +1,26 @@
+# 数值计算工具配置文件
+# 命令行参数优先级高于此配置文件
+
+# 积分默认配置
+integrate:
+  method: simpson        # trapezoid, simpson, gauss
+  steps: 100             # 默认分段数
+
+# ODE 默认配置
+ode:
+  method: rk4            # euler, heun, rk4
+  steps: 100             # 默认步数
+  adaptive: false        # 是否默认使用自适应步长
+  tolerance: 1.0e-6      # 自适应方法的容差
+
+# 绘图默认配置
+plot:
+  style: seaborn-v0_8-whitegrid  # matplotlib 样式
+  image_format: png              # 图像格式: png, pdf, svg, jpg
+  dpi: 150                       # 图像分辨率
+  figsize: [10, 6]               # 图像尺寸 [宽, 高]
+
+# 输出目录配置
+output:
+  ode_csv_dir: .         # ODE 结果 CSV 输出目录
+  plot_dir: .            # 图像输出目录
