@@ -2,7 +2,9 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from integration import parse_function
+from integrator import parse_function
+
+import sympy as sp
 
 
 def plot_function(expr_str, a, b, show_integral=False, num_points=500,
@@ -64,7 +66,6 @@ def plot_ode_solution(x, y, x0, y0, expr=None,
                 fontsize=11, color='#166534', fontweight='bold')
 
     if expr is not None:
-        import sympy as sp
         ax.set_title(title or f'ODE 解: $dy/dx = {sp.latex(expr)}$', fontsize=14, pad=15)
     else:
         ax.set_title(title or 'ODE 数值解', fontsize=14, pad=15)
@@ -87,6 +88,3 @@ def plot_ode_solution(x, y, x0, y0, expr=None,
         plt.savefig(f'ode_plot.{image_format}', format=image_format, dpi=dpi, bbox_inches='tight')
         plt.close(fig)
         return f'ode_plot.{image_format}'
-
-
-import sympy as sp

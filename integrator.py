@@ -1,10 +1,81 @@
 import sympy as sp
 import numpy as np
 import sys
+from abc import ABC, abstractmethod
 
 
 class ExpressionParseError(Exception):
     pass
+
+
+class Integrator(ABC):
+    name = 'base'
+    display_name = '基类'
+
+    @abstractmethod
+    def integrate(self, f, a, b, n):
+        pass
+
+
+class TrapezoidIntegrator(Integrator):
+    name = 'trapezoid'
+    display_name = '梯形法则'
+
+    def integrate(self, f, a, b, n):
+        if n <= 0:
+            raise ValueError("n 必须是正整数")
+        x = np.linspace(a, b, n + 1)
+        y = np.array([float(f(xi)) for xi in x])
+        h = (b - a) / n
+        result = h * (0.5 * y[0] + 0.5 * y[-1] + np.sum(y[1:-1]))
+        return float(result)
+
+
+class SimpsonIntegrator(Integrator):
+    name = 'simpson'
+    display_name = '辛普森法则'
+
+    def integrate(self, f, a, b, n):
+        if n <= 0:
+            raise ValueError("n 必须是正整数")
+        if n % 2 != 0:
+            n += 1
+        x = np.linspace(a, b, n + 1)
+        y = np.array([float(f(xi)) for xi in x])
+        h = (b - a) / n
+        result = (h / 3) * (
+            y[0] + y[-1]
+            + 4 * np.sum(y[1:-1:2])
+            + 2 * np.sum(y[2:-2:2])
+        )
+        return float(result)
+
+
+class GaussLegendreIntegrator(Integrator):
+    name = 'gauss'
+    display_name = '高斯-勒让德求积'
+
+    def integrate(self, f, a, b, n):
+        if n <= 0:
+            raise ValueError("n 必须是正整数")
+        nodes, weights = np.polynomial.legendre.leggauss(n)
+        x_transformed = 0.5 * (b - a) * nodes + 0.5 * (b + a)
+        y = np.array([float(f(xi)) for xi in x_transformed])
+        result = 0.5 * (b - a) * np.sum(weights * y)
+        return float(result)
+
+
+INTEGRATOR_REGISTRY = {
+    'trapezoid': TrapezoidIntegrator,
+    'simpson': SimpsonIntegrator,
+    'gauss': GaussLegendreIntegrator,
+}
+
+
+def get_integrator(method):
+    if method not in INTEGRATOR_REGISTRY:
+        raise ValueError(f"未知的积分方法: {method}")
+    return INTEGRATOR_REGISTRY[method]()
 
 
 def parse_function(expr_str, variable='x'):
@@ -149,52 +220,8 @@ def check_singularities(expr, f, a, b):
     return warnings
 
 
-def trapezoidal_rule(f, a, b, n):
-    if n <= 0:
-        raise ValueError("n 必须是正整数")
-    x = np.linspace(a, b, n + 1)
-    y = np.array([float(f(xi)) for xi in x])
-    h = (b - a) / n
-    result = h * (0.5 * y[0] + 0.5 * y[-1] + np.sum(y[1:-1]))
-    return float(result)
-
-
-def simpsons_rule(f, a, b, n):
-    if n <= 0:
-        raise ValueError("n 必须是正整数")
-    if n % 2 != 0:
-        raise ValueError("辛普森法则要求 n 为偶数")
-    x = np.linspace(a, b, n + 1)
-    y = np.array([float(f(xi)) for xi in x])
-    h = (b - a) / n
-    result = (h / 3) * (
-        y[0] + y[-1]
-        + 4 * np.sum(y[1:-1:2])
-        + 2 * np.sum(y[2:-2:2])
-    )
-    return float(result)
-
-
-def gauss_legendre_quadrature(f, a, b, n):
-    if n <= 0:
-        raise ValueError("n 必须是正整数")
-    nodes, weights = np.polynomial.legendre.leggauss(n)
-    x_transformed = 0.5 * (b - a) * nodes + 0.5 * (b + a)
-    y = np.array([float(f(xi)) for xi in x_transformed])
-    result = 0.5 * (b - a) * np.sum(weights * y)
-    return float(result)
-
-
-INTEGRATE_METHODS = {
-    'trapezoid': trapezoidal_rule,
-    'simpson': simpsons_rule,
-    'gauss': gauss_legendre_quadrature,
-}
-
-
-def integrate(expr_str, a, b, method='simpson', n=100):
-    if method not in INTEGRATE_METHODS:
-        raise ValueError(f"未知的积分方法: {method}")
+def compute_integral(expr_str, a, b, method='simpson', n=100):
+    integrator = get_integrator(method)
     f, expr = parse_function(expr_str, 'x')
 
     warnings = check_singularities(expr, f, a, b)
@@ -206,13 +233,8 @@ def integrate(expr_str, a, b, method='simpson', n=100):
         print("  积分结果可能不准确或无意义", file=sys.stderr)
         print("=" * 50, file=sys.stderr)
 
-    func = INTEGRATE_METHODS[method]
-
-    if method == 'simpson' and n % 2 != 0:
-        n += 1
-
     try:
-        result = func(f, a, b, n)
+        result = integrator.integrate(f, a, b, n)
         if not np.isfinite(result):
             raise ValueError("积分结果为无穷大或 NaN，可能区间内存在奇点")
     except ZeroDivisionError:
@@ -222,4 +244,4 @@ def integrate(expr_str, a, b, method='simpson', n=100):
     except Exception as e:
         raise ValueError(f"积分计算失败: {e}")
 
-    return result, expr
+    return result, expr, integrator

@@ -1,4 +1,5 @@
 import os
+import sys
 import yaml
 
 
@@ -26,79 +27,81 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config(config_path='config.yaml'):
-    config = DEFAULT_CONFIG.copy()
+class Config:
+    def __init__(self, config_path='config.yaml'):
+        self._config = self._deep_copy(DEFAULT_CONFIG)
+        self.load(config_path)
 
-    if not os.path.exists(config_path):
-        return config
+    def _deep_copy(self, obj):
+        if isinstance(obj, dict):
+            return {k: self._deep_copy(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._deep_copy(v) for v in obj]
+        return obj
 
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            user_config = yaml.safe_load(f)
+    def _deep_update(self, base, updates):
+        for key, value in updates.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                self._deep_update(base[key], value)
+            else:
+                base[key] = value
 
-        if user_config is None:
-            return config
+    def load(self, config_path='config.yaml'):
+        if not os.path.exists(config_path):
+            return
 
-        _deep_update(config, user_config)
-    except yaml.YAMLError as e:
-        print(f'警告: 配置文件解析错误: {e}', file=sys.stderr)
-    except Exception as e:
-        print(f'警告: 读取配置文件时出错: {e}', file=sys.stderr)
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                user_config = yaml.safe_load(f)
 
-    return config
+            if user_config is None:
+                return
 
+            self._deep_update(self._config, user_config)
+        except yaml.YAMLError as e:
+            print(f'警告: 配置文件解析错误: {e}', file=sys.stderr)
+        except Exception as e:
+            print(f'警告: 读取配置文件时出错: {e}', file=sys.stderr)
 
-def _deep_update(base, updates):
-    for key, value in updates.items():
-        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
-            _deep_update(base[key], value)
-        else:
-            base[key] = value
+    def get(self, section, key, default=None):
+        section_data = self._config.get(section, {})
+        if not isinstance(section_data, dict):
+            return default
+        return section_data.get(key, default)
 
+    def get_section(self, section):
+        return self._config.get(section, {})
 
-def merge_args(args, config, command):
-    if command == 'integrate':
-        cfg = config.get('integrate', {})
-        if args.method is None and 'method' in cfg:
-            args.method = cfg['method']
-        if args.n is None and 'steps' in cfg:
-            args.n = cfg['steps']
-    elif command == 'ode':
-        cfg = config.get('ode', {})
-        if args.method is None and 'method' in cfg:
-            args.method = cfg['method']
-        if args.n is None and 'steps' in cfg:
-            args.n = cfg['steps']
-        if args.adaptive is None and 'adaptive' in cfg:
-            args.adaptive = cfg['adaptive']
-        if args.tolerance is None and 'tolerance' in cfg:
-            args.tolerance = cfg['tolerance']
+    def set(self, section, key, value):
+        if section not in self._config:
+            self._config[section] = {}
+        self._config[section][key] = value
 
-        out_cfg = config.get('output', {})
-        if args.output == 'ode_result.csv' and 'ode_csv_dir' in out_cfg:
-            out_dir = out_cfg['ode_csv_dir']
-            if out_dir and out_dir != '.':
-                os.makedirs(out_dir, exist_ok=True)
-                args.output = os.path.join(out_dir, os.path.basename(args.output))
-    elif command == 'plot':
-        cfg = config.get('plot', {})
-        if args.style is None and 'style' in cfg:
-            args.style = cfg['style']
-        if args.image_format is None and 'image_format' in cfg:
-            args.image_format = cfg['image_format']
-        if args.dpi is None and 'dpi' in cfg:
-            args.dpi = cfg['dpi']
-        if args.figsize is None and 'figsize' in cfg:
-            args.figsize = tuple(cfg['figsize'])
-        if args.output is None:
-            out_cfg = config.get('output', {})
-            if 'plot_dir' in out_cfg and out_cfg['plot_dir'] != '.':
-                out_dir = out_cfg['plot_dir']
-                os.makedirs(out_dir, exist_ok=True)
-                base_name = 'integral_plot' if args.integrate else 'function_plot'
-                args.output = os.path.join(out_dir, base_name)
+    def apply_args(self, args, command):
+        if command == 'integrate':
+            if args.method is not None:
+                self.set('integrate', 'method', args.method)
+            if args.n is not None:
+                self.set('integrate', 'steps', args.n)
+        elif command == 'ode':
+            if args.method is not None:
+                self.set('ode', 'method', args.method)
+            if args.n is not None:
+                self.set('ode', 'steps', args.n)
+            if args.adaptive is not None:
+                self.set('ode', 'adaptive', args.adaptive)
+            if args.tolerance is not None:
+                self.set('ode', 'tolerance', args.tolerance)
+        elif command == 'plot':
+            if args.style is not None:
+                self.set('plot', 'style', args.style)
+            if args.image_format is not None:
+                self.set('plot', 'image_format', args.image_format)
+            if args.dpi is not None:
+                self.set('plot', 'dpi', args.dpi)
+            if args.figsize is not None:
+                self.set('plot', 'figsize', list(args.figsize))
 
-    return args
-
-
-import sys
+    @property
+    def all(self):
+        return self._config

@@ -1,0 +1,81 @@
+==================================================
+警告: 步长已达到最小值
+  当前位置: x = 1.000000
+  可能原因: 方程刚性强，或精度要求过高
+==================================================
+============================================================
+TEST 1: Config class
+============================================================
+  PASS: Config loads
+  PASS: get integrate method
+  PASS: get ode method
+  PASS: get plot style
+  PASS: get non-existent key
+  PASS: apply_args override method
+  PASS: apply_args override steps
+
+============================================================
+TEST 2: Integrator classes
+============================================================
+  PASS: TrapezoidIntegrator name
+  PASS: TrapezoidIntegrator display_name
+  PASS: SimpsonIntegrator name
+  PASS: GaussLegendreIntegrator name
+  PASS: Trapezoid result
+    trapezoid result: 1.9998355039
+  PASS: Simpson result
+    simpson result: 2.0000000108
+  PASS: Gauss-Legendre result
+    gauss result: 2.000000000000
+  PASS: get_integrator returns TrapezoidIntegrator
+  PASS: get_integrator returns SimpsonIntegrator
+  PASS: get_integrator returns GaussLegendreIntegrator
+
+============================================================
+TEST 3: compute_integral (high-level)
+============================================================
+  FAIL: compute_integral result close to 2.0 
+  PASS: compute_integral returns integrator object
+  PASS: bad expression raises ExpressionParseError
+
+============================================================
+TEST 4: ODE Solver classes
+============================================================
+  PASS: EulerSolver name
+  PASS: HeunSolver name
+  PASS: RK4Solver name
+  PASS: RK4 solve dy/dx = -2y + e^(-x)
+    y(1) ≈ 0.367879 (expected ~0.367879)
+
+============================================================
+TEST 5: RK45 Adaptive Solver
+============================================================
+  PASS: RK45AdaptiveSolver name
+  PASS: RK45 adaptive result
+    y(1) ≈ 0.36787945 (steps: 11)
+
+============================================================
+TEST 6: solve_ode (high-level)
+============================================================
+  PASS: solve_ode rk4 method_used
+  PASS: solve_ode rk4 steps_used
+  PASS: solve_ode adaptive method_used
+  PASS: solve_ode adaptive steps > 0
+    adaptive steps: 20
+
+============================================================
+TEST 7: Singularity detection still works
+============================================================
+  PASS: find_singularities 1/x
+    singularities: [0.0]
+
+============================================================
+TEST 8: CLI parser
+============================================================
+  PASS: parser builds ok
+  PASS: integrate has 3 methods
+  PASS: ode has 3 methods
+
+============================================================
+SOME TESTS FAILED!
+============================================================
